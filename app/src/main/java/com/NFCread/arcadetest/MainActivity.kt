@@ -1,5 +1,6 @@
 package com.NFCread.arcadetest
 
+import CardDataManager
 import android.app.AlertDialog
 import android.app.PendingIntent
 import android.content.Intent
@@ -8,26 +9,33 @@ import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import android.provider.Settings
+import android.widget.ProgressBar
 
 import android.content.IntentFilter
 import android.nfc.Tag
-import android.nfc.tech.NfcF
 import android.os.CountDownTimer
 import android.widget.EditText
 import android.widget.Toast
 import com.NFCread.arcadetest.models.CardData
 
-import com.NFCread.arcadetest.models.CardDataManager
+import android.nfc.tech.NfcF
+
 
 class MainActivity : AppCompatActivity() {
     private lateinit var nfcAdapter: NfcAdapter
     private lateinit var btnScan: Button
+    private lateinit var btnViewSaved: Button
+    private lateinit var btnSave: Button
     private lateinit var tvStatus: TextView
+    private lateinit var timerProgress: ProgressBar
+
     private var pendingIntent: PendingIntent? = null
     private val nfcFilters = arrayOf(IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED))
 
     private lateinit var cardDataManager: CardDataManager
+
+    private var isEmulationActive = false
+    private var emulationTimer: CountDownTimer? = null
 
     private var currentIdm: String = ""
     private var currentPmm: String = ""
@@ -37,58 +45,15 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        cardDataManager = CardDataManager(this)
-
-        // 저장 버튼 추가
-        val btnSave = findViewById<Button>(R.id.btnSave)
-        btnSave.setOnClickListener {
-            // 현재 스캔된 카드 데이터 저장
-            saveCurrentCard()
-        }
-
-        // 저장된 카드 목록 보기 버튼
-        val btnViewSaved = findViewById<Button>(R.id.btnViewSaved)
-        btnViewSaved.setOnClickListener {
-            showSavedCards()
-        }
-
-        // 초기화
+        // 뷰 초기화
         btnScan = findViewById(R.id.btnScan)
+        btnSave = findViewById(R.id.btnSave)
+        btnViewSaved = findViewById(R.id.btnViewSaved)
         tvStatus = findViewById(R.id.tvStatus)
+        timerProgress = findViewById(R.id.timerProgress)
 
-        // NFC 어댑터 초기화
-        nfcAdapter = NfcAdapter.getDefaultAdapter(this)
-
-        // PendingIntent 초기화 (Android 12 이상 대응)
-        pendingIntent = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            PendingIntent.getActivity(
-                this, 0,
-                Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            )
-        } else {
-            PendingIntent.getActivity(
-                this, 0,
-                Intent(this, javaClass).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                PendingIntent.FLAG_UPDATE_CURRENT
-            )
-        }
-
-        // NFC 지원 확인
-        if (nfcAdapter == null) {
-            tvStatus.text = "이 기기는 NFC를 지원하지 않습니다"
-            btnScan.isEnabled = false
-            return
-        }
-
-        btnScan.setOnClickListener {
-            if (!nfcAdapter.isEnabled) {
-                tvStatus.text = "NFC가 비활성화되어 있습니다"
-                startActivity(Intent(Settings.ACTION_NFC_SETTINGS))
-            } else {
-                tvStatus.text = "카드를 태그해주세요"
-            }
-        }
+        // 타이머 최대값 설정
+        timerProgress.max = 20
     }
 
     override fun onResume() {
@@ -138,12 +103,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateTimerUI(millisUntilFinished: Long) {
-        val seconds = millisUntilFinished / 1000
+        val seconds = (millisUntilFinished / 1000).toInt()
         tvStatus.text = "카드 활성화: ${seconds}초"
-        timerProgress.progress = seconds.toInt()
+        timerProgress.progress = seconds
     }
 
     private fun activateEmulation(cardData: CardData) {
+        // 이전 타이머가 있다면 취소
+        emulationTimer?.cancel()
+
         isEmulationActive = true
         disableButtons()
 
@@ -159,13 +127,69 @@ class MainActivity : AppCompatActivity() {
             }
         }.start()
     }
+    override fun onDestroy() {
+        super.onDestroy()
+        emulationTimer?.cancel()
+    }
 
     private fun handleFeliCaCard(tag: Tag?) {
-        if (!techList.contains("android.nfc.tech.NfcF")) {
-            showMessage("해당 카드는 다른 카드입니다! 어뮤즈먼트 IC 카드만 스캔해 주세요!")
+        if (tag == null) {
+            tvStatus.text = "카드를 읽을 수 없습니다"
             return
         }
+
+        // 카드의 기술 목록 가져오기
+        val techList = tag.techList
+
+        if (!techList.contains("android.nfc.tech.NfcF")) {
+            tvStatus.text = "해당 카드는 다른 카드입니다! 어뮤즈먼트 IC 카드만 스캔해 주세요!"
+            return
+        }
+
+        try {
+            val nfcF = NfcF.get(tag)
+            if (nfcF == null) {
+                tvStatus.text = "FeliCa 카드를 읽을 수 없습니다."
+                return
+            }
+
+            nfcF.connect()
+
+            val polling = byteArrayOf(
+                0x06,          // 길이
+                0x00,          // 명령 코드 (Poll)
+                0x88.toByte(), // 시스템 코드
+                0xB4.toByte(), // 시스템 코드
+                0x01,          // 요청 코드
+                0x0F           // 타임 슬롯
+            )
+
+            val response = nfcF.transceive(polling)
+            if (response != null && response.size >= 16) {
+                currentIdm = bytesToHexString(response.copyOfRange(2, 10))
+                currentPmm = bytesToHexString(response.copyOfRange(10, 18))
+                currentSystemCode = "88B4"
+
+                val cardInfo = StringBuilder().apply {
+                    append("카드 타입: Sony FeliCa\n")
+                    append("IDm: $currentIdm\n")
+                    append("PMm: $currentPmm\n")
+                    append("시스템 코드: $currentSystemCode")
+                }
+
+                tvStatus.text = cardInfo.toString()
+            } else {
+                tvStatus.text = "카드 응답이 올바르지 않습니다."
+            }
+
+            nfcF.close()
+
+        } catch (e: Exception) {
+            tvStatus.text = "카드 읽기 실패: ${e.message}"
+            e.printStackTrace()
+        }
     }
+
 
     private fun bytesToHexString(bytes: ByteArray?): String {
         if (bytes == null) return ""
@@ -224,33 +248,5 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("취소", null)
             .show()
-    }
-
-    // JSON 문자열을 CardData 객체로 변환하는 함수
-    private fun parseCardData(jsonString: String): CardData {
-        try {
-            // JSON 파싱을 위한 정규식
-            val idmPattern = "\"idm\":\\s*\"([^\"]+)\"".toRegex()
-            val pmmPattern = "\"pmm\":\\s*\"([^\"]+)\"".toRegex()
-            val systemCodePattern = "\"systemCode\":\\s*\"([^\"]+)\"".toRegex()
-
-            // 각 값 추출
-            val idm = idmPattern.find(jsonString)?.groupValues?.get(1) ?: ""
-            val pmm = pmmPattern.find(jsonString)?.groupValues?.get(1) ?: ""
-            val systemCode = systemCodePattern.find(jsonString)?.groupValues?.get(1) ?: ""
-
-            return CardData(
-                idm = idm,
-                pmm = pmm,
-                systemCode = systemCode
-            )
-        } catch (e: Exception) {
-            // 파싱 실패 시 기본값 반환
-            return CardData(
-                idm = "",
-                pmm = "",
-                systemCode = ""
-            )
-        }
     }
 }

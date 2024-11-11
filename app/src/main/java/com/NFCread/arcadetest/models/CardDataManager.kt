@@ -1,6 +1,5 @@
-package com.NFCread.arcadetest.models
-
 import android.content.Context
+import com.NFCread.arcadetest.models.CardData
 
 class CardDataManager(private val context: Context) {
     private val sharedPreferences = context.getSharedPreferences(
@@ -8,13 +7,13 @@ class CardDataManager(private val context: Context) {
         Context.MODE_PRIVATE
     )
 
-    fun isCardExists(idm: String): Boolean {
-        val cards = getCards()
-        return cards.any { it.idm == idm }
-    }
-
     fun saveCard(cardData: CardData) {
-        val cardJson = """
+        // 현재 저장된 카드 목록 가져오기
+        val savedCards = sharedPreferences.getStringSet("saved_cards", mutableSetOf()) ?: mutableSetOf()
+        val cardsList = savedCards.toMutableList()
+
+        // 새 카드 데이터를 JSON 형식 문자열로 변환
+        val newCardJson = """
             {
                 "name": "${cardData.name}",
                 "idm": "${cardData.idm}",
@@ -24,21 +23,25 @@ class CardDataManager(private val context: Context) {
             }
         """.trimIndent()
 
-        val cards = getCards().toMutableList()
-        cards.add(cardJson)
+        // 카드 추가
+        cardsList.add(newCardJson)
 
+        // 저장
         sharedPreferences.edit()
-            .putStringSet("saved_cards", cards.toSet())
+            .putStringSet("saved_cards", cardsList.toSet())
             .apply()
     }
 
     fun getCards(): List<CardData> {
-        val cardStrings = sharedPreferences.getStringSet("saved_cards", setOf()) ?: setOf()
-        return cardStrings.map { parseCardData(it) }
+        val savedCards = sharedPreferences.getStringSet("saved_cards", setOf()) ?: setOf()
+        return savedCards.map { parseCardData(it) }
+    }
+
+    fun isCardExists(idm: String): Boolean {
+        return getCards().any { it.idm == idm }
     }
 
     private fun parseCardData(jsonString: String): CardData {
-        // JSON 파싱을 위한 정규식
         val namePattern = "\"name\":\\s*\"([^\"]+)\"".toRegex()
         val idmPattern = "\"idm\":\\s*\"([^\"]+)\"".toRegex()
         val pmmPattern = "\"pmm\":\\s*\"([^\"]+)\"".toRegex()

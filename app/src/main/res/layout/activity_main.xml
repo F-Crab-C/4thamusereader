@@ -9,11 +9,11 @@
         android:id="@+id/statusCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        app:cardElevation="4dp"
         app:cardCornerRadius="8dp"
-        app:layout_constraintTop_toTopOf="parent"
+        app:cardElevation="4dp"
+        app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        app:layout_constraintTop_toTopOf="parent">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -25,9 +25,9 @@
                 android:id="@+id/tvStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:text="카드를 스캔해주세요"
                 android:textAlignment="center"
-                android:textSize="16sp"
-                android:text="카드를 스캔해주세요"/>
+                android:textSize="16sp" />
 
             <ProgressBar
                 android:id="@+id/timerProgress"
