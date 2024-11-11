@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.content.IntentFilter
 import android.nfc.Tag
 import android.nfc.tech.NfcF
+import android.os.CountDownTimer
 import android.widget.Toast
 import com.NFCread.arcadetest.models.CardData
 
@@ -119,6 +120,21 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    private fun activateEmulation(cardData: CardData) {
+        // 20초 타이머 시작
+        tvStatus.text = "카드 활성화: 20초"
+
+        object : CountDownTimer(20000, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                tvStatus.text = "카드 활성화: ${millisUntilFinished / 1000}초"
+            }
+
+            override fun onFinish() {
+                tvStatus.text = "카드 비활성화됨"
+                // 에뮬레이션 종료 처리
+            }
+        }.start()
+    }
 
     private fun handleFeliCaCard(tag: Tag?) {
         try {
@@ -190,11 +206,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun showSavedCards() {
         val cards = cardDataManager.getCards()
-        // 저장된 카드 목록을 보여주는 다이얼로그 표시
+        val items = cards.map {
+            "카드 ID: ${it.substring(0, 8)}..."
+        }.toTypedArray()
+
         AlertDialog.Builder(this)
-            .setTitle("저장된 카드 목록")
-            .setItems(cards.toTypedArray()) { _, _ -> }
-            .setPositiveButton("확인", null)
+            .setTitle("저장된 카드 선택")
+            .setItems(items) { _, which ->
+                // 선택된 카드로 에뮬레이션 시작
+                val selectedCard = cards[which]
+                activateEmulation(parseCardData(selectedCard))
+            }
+            .setPositiveButton("취소", null)
             .show()
     }
 }
