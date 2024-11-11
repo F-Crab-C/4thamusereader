@@ -121,6 +121,28 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+    private fun enableButtons() {
+        btnScan.isEnabled = true
+        btnSave.isEnabled = true
+        btnViewSaved.isEnabled = true
+    }
+
+    private fun disableButtons() {
+        btnScan.isEnabled = false
+        btnSave.isEnabled = false
+        btnViewSaved.isEnabled = false
+    }
+
+    private fun showMessage(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun updateTimerUI(millisUntilFinished: Long) {
+        val seconds = millisUntilFinished / 1000
+        tvStatus.text = "카드 활성화: ${seconds}초"
+        timerProgress.progress = seconds.toInt()
+    }
+
     private fun activateEmulation(cardData: CardData) {
         isEmulationActive = true
         disableButtons()
