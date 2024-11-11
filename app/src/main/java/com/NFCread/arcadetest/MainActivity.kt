@@ -76,47 +76,66 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         if (intent.action == NfcAdapter.ACTION_TAG_DISCOVERED) {
             val tag = intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)
-            val nfcF = NfcF.get(tag)
 
-            try {
-                nfcF?.connect()
+            // 카드 기술 확인
+            val techList = tag?.techList ?: emptyArray()
 
-                // FeliCa 시스템 코드 읽기
-                val systemCode = byteArrayOf(0xFF.toByte(), 0xFF.toByte())
-                val pollingCommand = buildPollingCommand(systemCode)
-                val pollingResponse = nfcF?.transceive(pollingCommand)
-
-                // 카드 정보 구성
-                val cardInfo = StringBuilder()
-                cardInfo.append("카드 타입: Sony FeliCa Lite-S\n")
-
-                // IDm (제조 ID) 읽기
-                val idm = bytesToHexString(tag?.id)
-                cardInfo.append("시리얼 번호: $idm\n")
-
-                // PMm (제조 파라미터) 읽기
-                if (pollingResponse != null && pollingResponse.size >= 16) {
-                    val pmm = bytesToHexString(pollingResponse.copyOfRange(8, 16))
-                    cardInfo.append("PMm: $pmm\n")
+            when {
+                // FeliCa 카드 확인
+                techList.contains("android.nfc.tech.NfcF") -> {
+                    handleFeliCaCard(tag)
                 }
-
-                // 시스템 코드 표시
-                val systemCodeHex = bytesToHexString(systemCode)
-                cardInfo.append("시스템 코드: $systemCodeHex")
-
-                tvStatus.text = cardInfo.toString()
-
-            } catch (e: Exception) {
-                tvStatus.text = "카드 읽기 실패: ${e.message}"
-            } finally {
-                try {
-                    nfcF?.close()
-                } catch (e: Exception) {
-                    // 연결 종료 실패 처리
+                // 다른 타입의 카드
+                else -> {
+                    tvStatus.text = "지원하지 않는 카드 타입입니다.\n" +
+                            "감지된 기술: ${techList.joinToString(", ")}"
                 }
             }
         }
+    }
+
+    private fun handleFeliCaCard(tag: Tag?) {
+        try {
+            val nfcF = NfcF.get(tag)
+            if (nfcF == null) {
+                tvStatus.text = "FeliCa 카드를 읽을 수 없습니다."
+                return
+            }
+
+            nfcF.connect()
+
+            // FeliCa 명령어 생성
+            val polling = byteArrayOf(
+                0x06,          // 길이
+                0x00,          // 명령 코드 (Poll)
+                0x88.toByte(), // 시스템 코드
+                0xB4.toByte(), // 시스템 코드
+                0x01,          // 요청 코드
+                0x0F           // 타임 슬롯
+            )
+
+            val response = nfcF.transceive(polling)
+            if (response != null && response.size >= 16) {
+                val idm = bytesToHexString(response.copyOfRange(2, 10))
+                val pmm = bytesToHexString(response.copyOfRange(10, 18))
+
+                val cardInfo = StringBuilder().apply {
+                    append("카드 타입: Sony FeliCa\n")
+                    append("IDm: $idm\n")
+                    append("PMm: $pmm\n")
+                    append("시스템 코드: 88B4")
+                }
+
+                tvStatus.text = cardInfo.toString()
+            } else {
+                tvStatus.text = "카드 응답이 올바르지 않습니다."
+            }
+
+        } catch (e: Exception) {
+            tvStatus.text = "카드 읽기 실패: ${e.message}"
+            e.printStackTrace()
         }
+    }
 
     private fun bytesToHexString(bytes: ByteArray?): String {
         if (bytes == null) return ""
@@ -125,15 +144,5 @@ class MainActivity : AppCompatActivity() {
             sb.append(String.format("%02X", b))
         }
         return sb.toString()
-    }
-    private fun buildPollingCommand(systemCode: ByteArray): ByteArray {
-        return byteArrayOf(
-            0x00.toByte(),  // 데이터 길이
-            0x00.toByte(),  // 명령 코드
-            systemCode[0],  // 시스템 코드
-            systemCode[1],  // 시스템 코드
-            0x01.toByte(),  // 요청 코드
-            0x0F.toByte()   // 타임 슬롯
-        )
     }
 }
