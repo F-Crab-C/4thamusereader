@@ -14,6 +14,7 @@ import android.content.IntentFilter
 import android.nfc.Tag
 import android.nfc.tech.NfcF
 import android.os.CountDownTimer
+import android.widget.EditText
 import android.widget.Toast
 import com.NFCread.arcadetest.models.CardData
 
@@ -121,63 +122,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
     private fun activateEmulation(cardData: CardData) {
-        // 20초 타이머 시작
-        tvStatus.text = "카드 활성화: 20초"
+        isEmulationActive = true
+        disableButtons()
 
-        object : CountDownTimer(20000, 1000) {
+        emulationTimer = object : CountDownTimer(20000, 1000) {
             override fun onTick(millisUntilFinished: Long) {
-                tvStatus.text = "카드 활성화: ${millisUntilFinished / 1000}초"
+                updateTimerUI(millisUntilFinished)
             }
 
             override fun onFinish() {
-                tvStatus.text = "카드 비활성화됨"
-                // 에뮬레이션 종료 처리
+                isEmulationActive = false
+                enableButtons()
+                updateTimerUI(0)
             }
         }.start()
     }
 
     private fun handleFeliCaCard(tag: Tag?) {
-        try {
-            val nfcF = NfcF.get(tag)
-            if (nfcF == null) {
-                tvStatus.text = "FeliCa 카드를 읽을 수 없습니다."
-                return
-            }
-
-            nfcF.connect()
-
-            // FeliCa 명령어 생성
-            val polling = byteArrayOf(
-                0x06,          // 길이
-                0x00,          // 명령 코드 (Poll)
-                0x88.toByte(), // 시스템 코드
-                0xB4.toByte(), // 시스템 코드
-                0x01,          // 요청 코드
-                0x0F           // 타임 슬롯
-            )
-
-            val response = nfcF.transceive(polling)
-            if (response != null && response.size >= 16) {
-                // 스캔된 정보를 변수에 저장
-                currentIdm = bytesToHexString(response.copyOfRange(2, 10))
-                currentPmm = bytesToHexString(response.copyOfRange(10, 18))
-                currentSystemCode = "88B4"
-
-                val cardInfo = StringBuilder().apply {
-                    append("카드 타입: Sony FeliCa\n")
-                    append("IDm: $currentIdm\n")
-                    append("PMm: $currentPmm\n")
-                    append("시스템 코드: $currentSystemCode")
-                }
-
-                tvStatus.text = cardInfo.toString()
-            } else {
-                tvStatus.text = "카드 응답이 올바르지 않습니다."
-            }
-
-        } catch (e: Exception) {
-            tvStatus.text = "카드 읽기 실패: ${e.message}"
-            e.printStackTrace()
+        if (!techList.contains("android.nfc.tech.NfcF")) {
+            showMessage("해당 카드는 다른 카드입니다! 어뮤즈먼트 IC 카드만 스캔해 주세요!")
+            return
         }
     }
 
@@ -191,33 +155,80 @@ class MainActivity : AppCompatActivity() {
     }
     private fun saveCurrentCard() {
         if (currentIdm.isEmpty()) {
-            Toast.makeText(this, "저장할 카드 정보가 없습니다", Toast.LENGTH_SHORT).show()
+            showMessage("저장할 카드 정보가 없습니다")
             return
         }
 
-        val currentCard = CardData(
-            idm = currentIdm,
-            pmm = currentPmm,
-            systemCode = currentSystemCode
-        )
-        cardDataManager.saveCard(currentCard)
-        Toast.makeText(this, "카드가 저장되었습니다", Toast.LENGTH_SHORT).show()
+        // 카드 이름 입력 다이얼로그
+        val input = EditText(this)
+        AlertDialog.Builder(this)
+            .setTitle("카드 이름 입력")
+            .setView(input)
+            .setPositiveButton("저장") { _, _ ->
+                val cardName = input.text.toString()
+                val newCard = CardData(
+                    name = cardName,
+                    idm = currentIdm,
+                    pmm = currentPmm,
+                    systemCode = currentSystemCode
+                )
+
+                // 중복 체크
+                if (cardDataManager.isCardExists(currentIdm)) {
+                    showMessage("이미 해당 카드는 저장되어 있습니다!")
+                } else {
+                    cardDataManager.saveCard(newCard)
+                    showMessage("카드가 저장되었습니다")
+                }
+            }
+            .setNegativeButton("취소", null)
+            .show()
     }
 
     private fun showSavedCards() {
+        if (isEmulationActive) {
+            showMessage("현재 카드가 활성화되어 있습니다")
+            return
+        }
+
         val cards = cardDataManager.getCards()
-        val items = cards.map {
-            "카드 ID: ${it.substring(0, 8)}..."
-        }.toTypedArray()
+        val items = cards.map { it.name }.toTypedArray()
 
         AlertDialog.Builder(this)
             .setTitle("저장된 카드 선택")
             .setItems(items) { _, which ->
-                // 선택된 카드로 에뮬레이션 시작
                 val selectedCard = cards[which]
-                activateEmulation(parseCardData(selectedCard))
+                activateEmulation(selectedCard)
             }
-            .setPositiveButton("취소", null)
+            .setNegativeButton("취소", null)
             .show()
+    }
+
+    // JSON 문자열을 CardData 객체로 변환하는 함수
+    private fun parseCardData(jsonString: String): CardData {
+        try {
+            // JSON 파싱을 위한 정규식
+            val idmPattern = "\"idm\":\\s*\"([^\"]+)\"".toRegex()
+            val pmmPattern = "\"pmm\":\\s*\"([^\"]+)\"".toRegex()
+            val systemCodePattern = "\"systemCode\":\\s*\"([^\"]+)\"".toRegex()
+
+            // 각 값 추출
+            val idm = idmPattern.find(jsonString)?.groupValues?.get(1) ?: ""
+            val pmm = pmmPattern.find(jsonString)?.groupValues?.get(1) ?: ""
+            val systemCode = systemCodePattern.find(jsonString)?.groupValues?.get(1) ?: ""
+
+            return CardData(
+                idm = idm,
+                pmm = pmm,
+                systemCode = systemCode
+            )
+        } catch (e: Exception) {
+            // 파싱 실패 시 기본값 반환
+            return CardData(
+                idm = "",
+                pmm = "",
+                systemCode = ""
+            )
+        }
     }
 }

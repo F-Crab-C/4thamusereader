@@ -8,19 +8,13 @@ class FeliCaHostService : HostApduService() {
     private var currentCardData: CardData? = null
 
     override fun processCommandApdu(commandApdu: ByteArray, extras: Bundle?): ByteArray {
-        // 저장된 카드 데이터 기반으로 응답
         return when {
-            isPollingCommand(commandApdu) -> {
-                createPollingResponse()
-            }
-            else -> {
-                ByteArray(0)
-            }
+            isPollingCommand(commandApdu) -> createPollingResponse()
+            else -> ByteArray(0)
         }
     }
 
     override fun onDeactivated(reason: Int) {
-        // NFC 연결이 끊어졌을 때의 처리
         currentCardData = null
     }
 
@@ -31,12 +25,17 @@ class FeliCaHostService : HostApduService() {
     }
 
     private fun createPollingResponse(): ByteArray {
-        val idm = currentCardData?.idm?.hexToByteArray() ?: ByteArray(8)
-        val pmm = currentCardData?.pmm?.hexToByteArray() ?: ByteArray(8)
-
-        return byteArrayOf(
+        // 기본 응답 헤더
+        val responseHeader = byteArrayOf(
             0x12.toByte(),  // 응답 길이
             0x01.toByte()   // 응답 코드
-        ) + idm + pmm       // IDm과 PMm 추가
+        )
+
+        // IDm과 PMm을 바이트 배열로 직접 변환
+        val idmBytes = ByteArray(8) { 0xFF.toByte() }  // 예시 IDm
+        val pmmBytes = ByteArray(8) { 0xFF.toByte() }  // 예시 PMm
+
+        // 응답 조합
+        return responseHeader + idmBytes + pmmBytes
     }
 }
