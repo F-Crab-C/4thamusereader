@@ -1,5 +1,6 @@
 package com.NFCread.arcadetest
 
+import android.app.AlertDialog
 import android.app.PendingIntent
 import android.content.Intent
 import android.nfc.NfcAdapter
@@ -12,6 +13,10 @@ import android.provider.Settings
 import android.content.IntentFilter
 import android.nfc.Tag
 import android.nfc.tech.NfcF
+import android.widget.Toast
+import com.NFCread.arcadetest.models.CardData
+
+import com.NFCread.arcadetest.models.CardDataManager
 
 class MainActivity : AppCompatActivity() {
     private lateinit var nfcAdapter: NfcAdapter
@@ -20,9 +25,30 @@ class MainActivity : AppCompatActivity() {
     private var pendingIntent: PendingIntent? = null
     private val nfcFilters = arrayOf(IntentFilter(NfcAdapter.ACTION_TAG_DISCOVERED))
 
+    private lateinit var cardDataManager: CardDataManager
+
+    private var currentIdm: String = ""
+    private var currentPmm: String = ""
+    private var currentSystemCode: String = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        cardDataManager = CardDataManager(this)
+
+        // 저장 버튼 추가
+        val btnSave = findViewById<Button>(R.id.btnSave)
+        btnSave.setOnClickListener {
+            // 현재 스캔된 카드 데이터 저장
+            saveCurrentCard()
+        }
+
+        // 저장된 카드 목록 보기 버튼
+        val btnViewSaved = findViewById<Button>(R.id.btnViewSaved)
+        btnViewSaved.setOnClickListener {
+            showSavedCards()
+        }
 
         // 초기화
         btnScan = findViewById(R.id.btnScan)
@@ -116,14 +142,16 @@ class MainActivity : AppCompatActivity() {
 
             val response = nfcF.transceive(polling)
             if (response != null && response.size >= 16) {
-                val idm = bytesToHexString(response.copyOfRange(2, 10))
-                val pmm = bytesToHexString(response.copyOfRange(10, 18))
+                // 스캔된 정보를 변수에 저장
+                currentIdm = bytesToHexString(response.copyOfRange(2, 10))
+                currentPmm = bytesToHexString(response.copyOfRange(10, 18))
+                currentSystemCode = "88B4"
 
                 val cardInfo = StringBuilder().apply {
                     append("카드 타입: Sony FeliCa\n")
-                    append("IDm: $idm\n")
-                    append("PMm: $pmm\n")
-                    append("시스템 코드: 88B4")
+                    append("IDm: $currentIdm\n")
+                    append("PMm: $currentPmm\n")
+                    append("시스템 코드: $currentSystemCode")
                 }
 
                 tvStatus.text = cardInfo.toString()
@@ -144,5 +172,29 @@ class MainActivity : AppCompatActivity() {
             sb.append(String.format("%02X", b))
         }
         return sb.toString()
+    }
+    private fun saveCurrentCard() {
+        if (currentIdm.isEmpty()) {
+            Toast.makeText(this, "저장할 카드 정보가 없습니다", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val currentCard = CardData(
+            idm = currentIdm,
+            pmm = currentPmm,
+            systemCode = currentSystemCode
+        )
+        cardDataManager.saveCard(currentCard)
+        Toast.makeText(this, "카드가 저장되었습니다", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showSavedCards() {
+        val cards = cardDataManager.getCards()
+        // 저장된 카드 목록을 보여주는 다이얼로그 표시
+        AlertDialog.Builder(this)
+            .setTitle("저장된 카드 목록")
+            .setItems(cards.toTypedArray()) { _, _ -> }
+            .setPositiveButton("확인", null)
+            .show()
     }
 }
