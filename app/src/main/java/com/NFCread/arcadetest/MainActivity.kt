@@ -11,6 +11,7 @@ import android.provider.Settings
 
 import android.content.IntentFilter
 import android.nfc.Tag
+import android.nfc.tech.NfcF
 
 class MainActivity : AppCompatActivity() {
     private lateinit var nfcAdapter: NfcAdapter
@@ -75,24 +76,47 @@ class MainActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         if (intent.action == NfcAdapter.ACTION_TAG_DISCOVERED) {
             val tag = intent.getParcelableExtra<Tag>(NfcAdapter.EXTRA_TAG)
-            val idm = bytesToHexString(tag?.id)
+            val nfcF = NfcF.get(tag)
 
-            // 카드 정보를 StringBuilder에 저장
-            val cardInfo = StringBuilder()
-            cardInfo.append("카드 타입: Sony FeliCa Lite-S RC-S966\n")
-            cardInfo.append("표준: JIS 6319-4\n")
-            cardInfo.append("시리얼 번호: $idm\n")
+            try {
+                nfcF?.connect()
 
-            // PMm 정보 추가 (고정값)
-            cardInfo.append("PMm: 0x00F100000000143D0\n")
+                // FeliCa 시스템 코드 읽기
+                val systemCode = byteArrayOf(0xFF.toByte(), 0xFF.toByte())
+                val pollingCommand = buildPollingCommand(systemCode)
+                val pollingResponse = nfcF?.transceive(pollingCommand)
 
-            // 시스템 코드 추가
-            cardInfo.append("시스템 코드: 0x88B4\n")
+                // 카드 정보 구성
+                val cardInfo = StringBuilder()
+                cardInfo.append("카드 타입: Sony FeliCa Lite-S\n")
 
-            // TextView에 정보 표시
-            tvStatus.text = cardInfo.toString()
+                // IDm (제조 ID) 읽기
+                val idm = bytesToHexString(tag?.id)
+                cardInfo.append("시리얼 번호: $idm\n")
+
+                // PMm (제조 파라미터) 읽기
+                if (pollingResponse != null && pollingResponse.size >= 16) {
+                    val pmm = bytesToHexString(pollingResponse.copyOfRange(8, 16))
+                    cardInfo.append("PMm: $pmm\n")
+                }
+
+                // 시스템 코드 표시
+                val systemCodeHex = bytesToHexString(systemCode)
+                cardInfo.append("시스템 코드: $systemCodeHex")
+
+                tvStatus.text = cardInfo.toString()
+
+            } catch (e: Exception) {
+                tvStatus.text = "카드 읽기 실패: ${e.message}"
+            } finally {
+                try {
+                    nfcF?.close()
+                } catch (e: Exception) {
+                    // 연결 종료 실패 처리
+                }
+            }
         }
-    }
+        }
 
     private fun bytesToHexString(bytes: ByteArray?): String {
         if (bytes == null) return ""
@@ -101,5 +125,15 @@ class MainActivity : AppCompatActivity() {
             sb.append(String.format("%02X", b))
         }
         return sb.toString()
+    }
+    private fun buildPollingCommand(systemCode: ByteArray): ByteArray {
+        return byteArrayOf(
+            0x00.toByte(),  // 데이터 길이
+            0x00.toByte(),  // 명령 코드
+            systemCode[0],  // 시스템 코드
+            systemCode[1],  // 시스템 코드
+            0x01.toByte(),  // 요청 코드
+            0x0F.toByte()   // 타임 슬롯
+        )
     }
 }
